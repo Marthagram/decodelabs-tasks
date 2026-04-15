@@ -31,6 +31,7 @@ header h1{
 }
 
 .section{
+    font-family:  'Roboto', sans-serif;
     background-color: #A5856f;
     display: grid;
 	grid-gap: 0.5rem;
