@@ -53,6 +53,8 @@ div{
  footer{
     display: grid;
     gap: 0.5rem;
-    justify-self: center;
-    background-color:  #F2F0EA; ;
+    text-align: center;
+    background-color:  #F2F0EA; 
+    font-size: 1rem;
+    font-family: "Montserrat", sans-serif;
  }

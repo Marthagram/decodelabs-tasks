@@ -3,6 +3,7 @@ const section = document.querySelector('.section');
 const stateSelect = document.querySelector('#state');
 
 export function displayWeather(data) {
+
     // populate the currentWeather
     const div = document.createElement('div');
     const stateName = document.createElement('h2');
@@ -45,7 +46,17 @@ export function displayWeather(data) {
     div.appendChild(sunset);
   
     section.appendChild(div); 
+
+      
 }
+
+// export function selectState(data) {
+
+// if (stateSelect.value === data.name) {
+//     const select = data.filter((item) => item.name === stateSelect.value);
+//     displayWeather(select);
+// }
+// }
 
 
 

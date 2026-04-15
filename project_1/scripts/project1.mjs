@@ -1,4 +1,4 @@
-import { displayWeather } from "./displayWeather.js";
+import { displayWeather} from "./displayWeather.js";
 
 const projectFilePath = './data/project.json';
 
