@@ -72,9 +72,7 @@ export function selectState(data) {
     if (select) {  // check if we actually found something
         displayWeather(select);
     }
-    else {
-        console.log("State not found in data:", stateSelect.value);
-    }   
+   
 }
 
 
