@@ -30,7 +30,10 @@ header h1{
     margin-bottom: 1rem;
 }
 
+
 .section{
+    display: grid;
+    justify-items: center;
     font-family:  'Roboto', sans-serif;
     background-color: #A5856f;
     text-align: center;
