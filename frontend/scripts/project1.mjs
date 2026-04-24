@@ -1,11 +1,15 @@
 import { selectState } from "./displayWeather.js";
 
 const stateSelect = document.querySelector('#state');
-let allWeatherData = [];
-let hasLoaded = false; // GATEKEEPER - prevent double fetch
 
-// Event listener runs ONCE when page loads
+let allWeatherData = [];
+let hasLoaded = false;
+
+stateSelect.disabled = true;
+
 stateSelect.addEventListener('change', (e) => {
+  console.log('Selected:', e.target.value);
+
   if (allWeatherData.length > 0) {
     selectState(allWeatherData, e.target.value);
   }
@@ -13,47 +17,53 @@ stateSelect.addEventListener('change', (e) => {
 
 async function getStateNames() {
   const response = await fetch('./data/project.json');
-  if (!response.ok) throw new Error("Failed to fetch states");
   const data = await response.json();
   return data.states;
 }
 
 async function fetchAllCurrentWeather() {
-  // GATEKEEPER: If already loaded, don't run again
-  if (hasLoaded) {
-    console.log('Already loaded. Skipping fetch.');
-    return;
-  }
+  if (hasLoaded) return;
   hasLoaded = true;
 
   try {
     const states = await getStateNames();
-    console.log('Loading weather ONCE for 36 states...');
 
     const weatherPromises = states.map(async (state) => {
-      const url = `http://localhost:3000/api/weather/${encodeURIComponent(state.name)}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        console.log(`Failed for ${state.name}`);
-        return null; // Skip failed states
-      }
+      try {
+        const url = `/api/weather/${encodeURIComponent(state.name)}`;
+        const response = await fetch(url);
 
-      const result = await response.json();
-      const weather = result.data;
-      weather.state_name = state.name;
-      weather.source = result.source;
-      return weather;
+        if (!response.ok) return null;
+
+        const result = await response.json();
+
+        return {
+          ...result.data,
+          state_name: state.name,
+          source: result.source,
+          fetched_at: result.fetched_at
+        };
+
+      } catch {
+        return null;
+      }
     });
 
     const results = await Promise.all(weatherPromises);
-    allWeatherData = results.filter(w => w!== null); // Remove failed ones
-    console.log('DONE! Loaded:', allWeatherData.length, 'states. Ready!');
+    allWeatherData = results.filter(Boolean);
 
-  } catch (error) {
-    console.log("Weather error:", error);
-    hasLoaded = false; // Allow retry if error
+    console.log('Loaded:', allWeatherData.length);
+
+    stateSelect.disabled = false;
+
+    if (stateSelect.value) {
+      selectState(allWeatherData, stateSelect.value);
+    }
+
+  } catch (err) {
+    console.log('Error:', err);
+    hasLoaded = false;
   }
 }
 
-// RUNS ONCE ON PAGE LOAD ONLY
 fetchAllCurrentWeather();

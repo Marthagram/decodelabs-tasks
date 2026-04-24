@@ -1,121 +1,108 @@
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
 require('dotenv').config();
+const Database = require('better-sqlite3');
+
+const db = new Database('weather.db');
 
 const app = express();
 const PORT = 3000;
 const API_KEY = process.env.OPENWEATHER_API_KEY;
-const CACHE_TTL_SECONDS = 3600; // 1 hour
+const CACHE_TTL_SECONDS = 3600;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Database setup
-const dbPath = path.resolve(__dirname, 'weather.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    db.run(`CREATE TABLE IF NOT EXISTS weather (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      city TEXT UNIQUE,
-      data TEXT,
-      fetched_at INTEGER
-    )`);
-  }
-});
+// DB setup
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS weather (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    city TEXT UNIQUE,
+    data TEXT,
+    fetched_at INTEGER
+  )
+`).run();
 
-// Helper functions
-function getWeatherFromCache(city) {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM weather WHERE city =?', [city], (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+// Helpers
+function getCache(city) {
+  return db.prepare('SELECT * FROM weather WHERE city = ?').get(city);
 }
 
-function saveWeatherToCache(city, data) {
+function saveCache(city, data) {
   const fetchedAt = Math.floor(Date.now() / 1000);
-  const dataStr = JSON.stringify(data);
-  db.run(
-    'INSERT OR REPLACE INTO weather (city, data, fetched_at) VALUES (?,?,?)',
-    [city, dataStr, fetchedAt],
-    (err) => {
-      if (err) console.error('Cache save error:', err.message);
-    }
-  );
+  db.prepare(
+    'INSERT OR REPLACE INTO weather (city, data, fetched_at) VALUES (?,?,?)'
+  ).run(city, JSON.stringify(data), fetchedAt);
 }
 
-function isCacheFresh(timestamp) {
-  const now = Math.floor(Date.now() / 1000);
-  return (now - timestamp) < CACHE_TTL_SECONDS;
+function isFresh(time) {
+  return (Math.floor(Date.now() / 1000) - time) < CACHE_TTL_SECONDS;
 }
 
-// Routes
-app.get('/', (req, res) => {
-  res.json({ message: 'Weather cache server running' });
-});
-
-// Main weather endpoint - now uses city name directly
+// Route
 app.get('/api/weather/:city', async (req, res) => {
-  const { city } = req.params;
-  const cityQuery = `${city},NG`; // Add Nigeria country code for accuracy
+  let { city } = req.params;
+
+  if (!city || city.length < 2) {
+    return res.status(400).json({ error: 'Invalid city' });
+  }
+
+  city = city.toLowerCase();
+  const cityQuery = `${city},NG`;
 
   try {
-    // 1. Check cache first
-    const cached = await getWeatherFromCache(cityQuery);
-    if (cached && isCacheFresh(cached.fetched_at)) {
-      console.log(`Serving ${city} from cache`);
+    const cached = getCache(cityQuery);
+
+    if (cached && isFresh(cached.fetched_at)) {
       return res.json({
         source: 'cache',
-        data: JSON.parse(cached.data)
+        data: JSON.parse(cached.data),
+        fetched_at: cached.fetched_at
       });
     }
 
-    // 2. Fetch from OpenWeather API
-    console.log(`Fetching ${cityQuery} from external API`);
-    const apiUrl = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityQuery)}&units=metric&appid=${API_KEY}`;
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityQuery)}&units=metric&appid=${API_KEY}`;
+    const response = await fetch(url);
 
-    const apiResponse = await fetch(apiUrl);
-    if (!apiResponse.ok) {
-      throw new Error(`OpenWeather API error: ${apiResponse.status}`);
-    }
+    if (!response.ok) throw new Error();
 
-    const data = await apiResponse.json();
+    const raw = await response.json();
 
-    // 3. Save to cache
-    saveWeatherToCache(cityQuery, data);
+    const data = {
+      temperature: raw.main.temp,
+      temp_min: raw.main.temp_min,
+      temp_max: raw.main.temp_max,
+      humidity: raw.main.humidity,
+      description: raw.weather[0].description,
+      icon_url: `https://openweathermap.org/img/wn/${raw.weather[0].icon}@2x.png`,
+      sunrise: raw.sys.sunrise,
+      sunset: raw.sys.sunset
+    };
 
-    // 4. Return fresh data
-    res.json({ source: 'api', data });
+    saveCache(cityQuery, data);
 
-  } catch (err) {
-    console.log(`API Error for ${city}:`, err.message);
+    res.json({
+      source: 'api',
+      data,
+      fetched_at: Math.floor(Date.now() / 1000)
+    });
 
-    // Fallback: serve stale cache if available
-    const cached = await getWeatherFromCache(cityQuery);
+  } catch {
+    const cached = getCache(cityQuery);
+
     if (cached) {
-      console.log(`Serving stale cache for ${city}`);
       return res.json({
         source: 'stale_cache',
-        data: JSON.parse(cached.data)
+        data: JSON.parse(cached.data),
+        fetched_at: cached.fetched_at
       });
     }
 
-    // No cache, no API - return error
-    res.status(500).json({
-      error: 'Weather data unavailable',
-      city: city
-    });
+    res.status(500).json({ error: 'Weather unavailable' });
   }
 });
 
-// Start server
+
 app.listen(PORT, () => {
-  console.log(`Weather cache server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
