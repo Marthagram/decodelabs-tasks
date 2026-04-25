@@ -1,19 +1,41 @@
 const express = require('express');
+// Import Express framework (for building server)
+
 const cors = require('cors');
+// Allows frontend to talk to backend (cross-origin requests)
+
 require('dotenv').config();
+// Load environment variables from .env file
+
 const Database = require('better-sqlite3');
+// Import SQLite database library
 
 const db = new Database('weather.db');
+// Create or open local SQLite database file
+
 
 const app = express();
+// Create Express application
+
 const PORT = 3000;
+// Server runs on port 3000
+
 const API_KEY = process.env.OPENWEATHER_API_KEY;
+// Get API key from .env file (important security practice)
+
 const CACHE_TTL_SECONDS = 3600;
+// Cache duration (1 hour)
 
+
+// Middleware setup
 app.use(cors());
-app.use(express.json());
+// Allow frontend to access backend
 
-// DB setup
+app.use(express.json());
+// Allow JSON data handling
+
+
+// Create weather table if it doesn't exist
 db.prepare(`
   CREATE TABLE IF NOT EXISTS weather (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,37 +45,56 @@ db.prepare(`
   )
 `).run();
 
-// Helpers
-function getCache(city) {
+
+// Get cached weather from database
+function getWeatherFromCache(city) {
   return db.prepare('SELECT * FROM weather WHERE city = ?').get(city);
 }
 
-function saveCache(city, data) {
+
+// Save weather into cache
+function saveWeatherToCache(city, data) {
+
   const fetchedAt = Math.floor(Date.now() / 1000);
+  // Current time in seconds
+
   db.prepare(
     'INSERT OR REPLACE INTO weather (city, data, fetched_at) VALUES (?,?,?)'
   ).run(city, JSON.stringify(data), fetchedAt);
 }
 
-function isFresh(time) {
-  return (Math.floor(Date.now() / 1000) - time) < CACHE_TTL_SECONDS;
+
+// Check if cached data is still fresh
+function isCacheFresh(timestamp) {
+  const now = Math.floor(Date.now() / 1000);
+  return (now - timestamp) < CACHE_TTL_SECONDS;
 }
 
-// Route
+
+// Main API route
 app.get('/api/weather/:city', async (req, res) => {
+
   let { city } = req.params;
+  // Get city from URL
 
   if (!city || city.length < 2) {
-    return res.status(400).json({ error: 'Invalid city' });
+    return res.status(400).json({ error: 'Invalid city name' });
+    // Reject invalid input
   }
 
   city = city.toLowerCase();
   const cityQuery = `${city},NG`;
+  // Add country code for accuracy (Nigeria)
+
 
   try {
-    const cached = getCache(cityQuery);
 
-    if (cached && isFresh(cached.fetched_at)) {
+    const cached = getWeatherFromCache(cityQuery);
+    // Check if data exists in cache
+
+    if (cached && isCacheFresh(cached.fetched_at)) {
+      // If cache exists and is fresh
+
       return res.json({
         source: 'cache',
         data: JSON.parse(cached.data),
@@ -61,13 +102,20 @@ app.get('/api/weather/:city', async (req, res) => {
       });
     }
 
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityQuery)}&units=metric&appid=${API_KEY}`;
-    const response = await fetch(url);
 
-    if (!response.ok) throw new Error();
+    // Fetch from OpenWeather API
+    const apiUrl = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityQuery)}&units=metric&appid=${API_KEY}`;
 
-    const raw = await response.json();
+    const apiResponse = await fetch(apiUrl);
+    // Call external weather API
 
+    if (!apiResponse.ok) throw new Error('API error');
+
+    const raw = await apiResponse.json();
+    // Convert response to JSON
+
+
+    // Clean and structure data
     const data = {
       temperature: raw.main.temp,
       temp_min: raw.main.temp_min,
@@ -79,7 +127,10 @@ app.get('/api/weather/:city', async (req, res) => {
       sunset: raw.sys.sunset
     };
 
-    saveCache(cityQuery, data);
+
+    saveWeatherToCache(cityQuery, data);
+    // Save fresh data to database cache
+
 
     res.json({
       source: 'api',
@@ -87,8 +138,10 @@ app.get('/api/weather/:city', async (req, res) => {
       fetched_at: Math.floor(Date.now() / 1000)
     });
 
-  } catch {
-    const cached = getCache(cityQuery);
+  } catch (err) {
+
+    const cached = getWeatherFromCache(cityQuery);
+    // Try fallback cache if API fails
 
     if (cached) {
       return res.json({
@@ -99,10 +152,12 @@ app.get('/api/weather/:city', async (req, res) => {
     }
 
     res.status(500).json({ error: 'Weather unavailable' });
+    // Final fallback error
   }
 });
 
 
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -38,8 +38,22 @@ header h1{
     background-color: #A5856f;
     text-align: center;
     padding: 1rem;  
-	
-  
+ 
+}
+
+/* Weather card animation */
+.section div {
+  opacity: 0;
+  transform: translateY(20px);
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+/* keyframes for smooth entrance */
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 label{
